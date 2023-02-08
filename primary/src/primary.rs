@@ -100,7 +100,7 @@ impl Primary {
 
         // Initialize the metrics
         let metrics = initialise_metrics(registry);
-        let endpoint_metrics = metrics.endpoint_metrics.unwrap();
+        //let endpoint_metrics = metrics.endpoint_metrics.unwrap();
         let mut primary_channel_metrics = metrics.primary_channel_metrics.unwrap();
         let inbound_network_metrics = Arc::new(metrics.inbound_network_metrics.unwrap());
         let outbound_network_metrics = Arc::new(metrics.outbound_network_metrics.unwrap());
@@ -445,7 +445,9 @@ impl Primary {
         );
 
         let consensus_api_handle = if !internal_consensus {
+            info!("gRPC for External Consensus Enabled");
             // Spawn a grpc server to accept requests from external consensus layer.
+            /*
             Some(ConsensusAPIGrpc::spawn(
                 name.clone(),
                 parameters.consensus_api_grpc.socket_addr,
@@ -458,7 +460,10 @@ impl Primary {
                 committee.clone(),
                 endpoint_metrics,
             ))
+            */
+            Some(())
         } else {
+            info!("gRPC for External Consensus Disabled");
             None
         };
 
@@ -472,7 +477,7 @@ impl Primary {
                 .expect("Our public key or worker id is not in the committee")
         );
 
-        let mut handles = vec![
+        let handles = vec![
             core_handle,
             payload_receiver_handle,
             block_synchronizer_handle,
@@ -485,9 +490,11 @@ impl Primary {
             state_handler_handle,
         ];
 
+        /*
         if let Some(h) = consensus_api_handle {
             handles.push(h);
         }
+        */
 
         handles
     }

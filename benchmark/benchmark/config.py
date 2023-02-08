@@ -149,6 +149,7 @@ class Committee:
             "name": {
                 "stake": 1,
                 "primary_address": x.x.x.x:x,
+                "anvil_address": x.x.x.x:x,
                 "network_key: NETWORK_KEY==
             },
             ...
@@ -178,12 +179,14 @@ class Committee:
         for name, (network_name, hosts) in addresses.items():
             host = hosts.pop(0)
             primary_addr = f'/ip4/{host}/tcp/{port}/http'
+            anvil_addr = f'/ip4/{host}/tcp/{port + 2001}/http'
             port += 1
 
             self.json['authorities'][name] = {
                 'stake': 1,
                 'primary_address': primary_addr,
-                'network_key': network_name
+                'anvil_address': anvil_addr,
+                'network_key': network_name,
             }
 
     def primary_addresses(self, faults=0):

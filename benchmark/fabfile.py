@@ -39,7 +39,8 @@ def local(ctx, debug=True):
             'handler_certificate_deliver_timeout': '2_000ms'
         },
         "consensus_api_grpc": {
-            "socket_addr": "/ip4/127.0.0.1/tcp/0/http",
+            "socket_multi_addr": "/ip4/127.0.0.1/tcp/0/http",
+            "socket_addr": "127.0.0.1:0",
             "get_collections_timeout": "5_000ms",
             "remove_collections_timeout": "5_000ms"
         },

@@ -4,15 +4,18 @@
 use bytes::{BufMut as _, BytesMut};
 use clap::{crate_name, crate_version, App, AppSettings};
 use eyre::Context;
-use futures::{future::join_all, StreamExt};
+use futures::{future::join_all, sink::SinkExt as _};
+use multiaddr::Multiaddr;
 use rand::Rng;
+use std::net::SocketAddr;
 use tokio::{
     net::TcpStream,
     time::{interval, sleep, Duration, Instant},
 };
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use tracing::{info, subscriber::set_global_default, warn};
 use tracing_subscriber::filter::EnvFilter;
-use types::{TransactionProto, TransactionsClient};
+use types::{AnvilToWorkerClient, AnvilTransactionRequest};
 use url::Url;
 
 #[tokio::main]
@@ -133,13 +136,15 @@ impl Client {
         }
 
         // Connect to the mempool.
-        let mut client = TransactionsClient::connect(self.target.as_str().to_owned())
+        let addrs = self.target.socket_addrs(|| None).unwrap();
+        let mut stream = TcpStream::connect(&*addrs)
             .await
             .context(format!("failed to connect to {}", self.target))?;
 
         // Submit all transactions.
         let mut counter = 0;
         let mut r = rand::thread_rng().gen();
+        let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
         let interval = interval(Duration::from_millis(BURST_DURATION));
         tokio::pin!(interval);
 
@@ -152,7 +157,7 @@ impl Client {
 
             let mut tx = BytesMut::with_capacity(self.size);
             let size = self.size;
-            let stream = tokio_stream::iter(0..burst).map(move |x| {
+            for x in 0..burst {
                 if x == counter % burst {
                     // NOTE: This log entry is used to compute performance.
                     info!("Sending sample transaction {counter}");
@@ -167,12 +172,12 @@ impl Client {
 
                 tx.resize(size, 0u8);
                 let bytes = tx.split().freeze();
-                TransactionProto { transaction: bytes }
-            });
-
-            if let Err(e) = client.submit_transaction_stream(stream).await {
-                warn!("Failed to send transaction: {e}");
-                break 'main;
+                let msg =
+                    bincode::serialize(&AnvilTransactionRequest { tx: bytes.to_vec() }).unwrap();
+                if let Err(e) = transport.send(msg.into()).await {
+                    warn!("Failed to send transaction: {e}");
+                    break 'main;
+                }
             }
 
             if now.elapsed().as_millis() > BURST_DURATION as u128 {

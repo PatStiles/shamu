@@ -8,13 +8,13 @@
     rust_2021_compatibility
 )]
 
-mod batch_maker;
+pub mod batch_maker;
 mod handlers;
 pub mod metrics;
 mod primary_connector;
-mod processor;
+pub mod processor;
 mod quorum_waiter;
 mod synchronizer;
-mod worker;
+pub mod worker;
 
 pub use crate::worker::{Worker, WorkerMessage};

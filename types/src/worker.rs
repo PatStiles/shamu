@@ -1,7 +1,7 @@
 // Copyright (c) 2022, Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{Batch, BatchDigest};
+use crate::{Batch, BatchDigest, Transaction};
 use blake2::digest::Update;
 
 use serde::{Deserialize, Serialize};
@@ -40,6 +40,20 @@ pub struct RequestBatchRequest {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RequestBatchResponse {
     pub batch: Option<Batch>,
+}
+
+/// The messages sent by anvil to all workers.
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+pub enum AnvilWorkerMessage {
+    /// The worker indicates it sealed a new batch.
+    SubmitTransaction(Transaction),
+}
+///
+/// Used by workers to request batches from other workers.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AnvilTransactionRequest {
+    pub tx: Transaction,
 }
 
 /// Hashes a serialized batch message without deserializing it into a batch.

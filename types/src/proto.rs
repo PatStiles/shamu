@@ -8,6 +8,7 @@ mod narwhal {
     include!(concat!(env!("OUT_DIR"), "/narwhal.PrimaryToWorker.rs"));
     include!(concat!(env!("OUT_DIR"), "/narwhal.WorkerToPrimary.rs"));
     include!(concat!(env!("OUT_DIR"), "/narwhal.WorkerToWorker.rs"));
+    include!(concat!(env!("OUT_DIR"), "/narwhal.AnvilToWorker.rs"));
 }
 
 use std::{array::TryFromSliceError, ops::Deref};
@@ -35,6 +36,8 @@ pub use narwhal::{
     worker_to_primary_server::{WorkerToPrimary, WorkerToPrimaryServer},
     worker_to_worker_client::WorkerToWorkerClient,
     worker_to_worker_server::{WorkerToWorker, WorkerToWorkerServer},
+    anvil_to_worker_client::AnvilToWorkerClient,
+    anvil_to_worker_server::{AnvilToWorker, AnvilToWorkerServer},
     CertificateDigest as CertificateDigestProto, Collection, CollectionError,
     CollectionRetrievalResult, Empty, GetCollectionsRequest, GetCollectionsResponse,
     GetPrimaryAddressResponse, MultiAddr as MultiAddrProto, NewEpochRequest, NewNetworkInfoRequest,

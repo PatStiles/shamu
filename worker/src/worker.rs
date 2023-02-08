@@ -29,8 +29,9 @@ use tracing::info;
 use types::{
     error::DagError,
     metered_channel::{channel, Receiver, Sender},
-    Batch, BatchDigest, Empty, PrimaryToWorkerServer, ReconfigureNotification, Transaction,
-    TransactionProto, Transactions, TransactionsServer, WorkerPrimaryMessage, WorkerToWorkerServer,
+    AnvilToWorker, AnvilToWorkerClient, AnvilToWorkerServer, Batch, BatchDigest, Empty,
+    PrimaryToWorkerServer, ReconfigureNotification, Transaction, TransactionProto, Transactions,
+    TransactionsServer, WorkerPrimaryMessage, WorkerToWorkerServer,
 };
 
 #[cfg(test)]
@@ -133,6 +134,7 @@ impl Worker {
         let routes = anemo::Router::new()
             .add_rpc_service(worker_service)
             .add_rpc_service(primary_service);
+        //TODO: Add Tx Services
 
         let service = ServiceBuilder::new()
             .layer(TraceLayer::new())
@@ -216,8 +218,7 @@ impl Worker {
             tx_primary.clone(),
             node_metrics,
             channel_metrics,
-            endpoint_metrics,
-            network.clone(),
+            //endpoint_metrics,
         );
         let worker_flow_handles = worker.handle_workers_messages(
             &tx_reconfigure,
@@ -276,8 +277,7 @@ impl Worker {
         tx_primary: Sender<WorkerPrimaryMessage>,
         node_metrics: Arc<WorkerMetrics>,
         channel_metrics: Arc<WorkerChannelMetrics>,
-        endpoint_metrics: WorkerEndpointMetrics,
-        network: anemo::Network,
+        //endpoint_metrics: WorkerEndpointMetrics,
     ) -> Vec<JoinHandle<()>> {
         let (tx_batch_maker, rx_batch_maker) =
             channel(CHANNEL_CAPACITY, &channel_metrics.tx_batch_maker);
@@ -294,13 +294,51 @@ impl Worker {
             .expect("Our public key or worker id is not in the worker cache")
             .transactions;
         let address = address
-            .replace(0, |_protocol| Some(Protocol::Ip4(Ipv4Addr::UNSPECIFIED)))
+            .replace(0, |_protocol| {
+                Some(Protocol::Ip4(Ipv4Addr::new(0, 0, 0, 0)))
+            })
             .unwrap();
+        let addr = network::multiaddr_to_address(&address).unwrap();
+        /*
         let tx_receiver_handle = TxReceiverHandler { tx_batch_maker }.spawn(
             address.clone(),
             tx_reconfigure.subscribe(),
             endpoint_metrics,
         );
+        */
+        let tx_service_handle = AnvilToWorkerServer::new(AnvilReceiverHandler { tx_batch_maker });
+        // Set up anemo Network.
+        let routes = anemo::Router::new().add_rpc_service(tx_service_handle);
+        //TODO: Add Tx Services
+
+        let service = ServiceBuilder::new()
+            .layer(TraceLayer::new())
+            .service(routes);
+
+        let outbound_layer = ServiceBuilder::new().layer(TraceLayer::new()).into_inner();
+        let network = anemo::Network::bind(addr)
+            .server_name("narwhal")
+            .private_key(self.keypair.copy().private().0.to_bytes())
+            .outbound_request_layer(outbound_layer)
+            .start(service)
+            .unwrap();
+
+        let other_workers = self
+            .worker_cache
+            .load()
+            .others_workers(&self.primary_name, &self.id)
+            .into_iter()
+            .map(|(_, info)| (info.name, info.worker_address));
+        for (public_key, address) in other_workers {
+            let peer_id = PeerId(public_key.0.to_bytes());
+            let address = network::multiaddr_to_address(&address).unwrap();
+            let peer_info = PeerInfo {
+                peer_id,
+                affinity: anemo::types::PeerAffinity::High,
+                address: vec![address],
+            };
+            network.known_peers().insert(peer_info);
+        }
 
         // The transactions are sent to the `BatchMaker` that assembles them into batches. It then broadcasts
         // (in a reliable manner) the batches to all other workers that share the same `id` as us. Finally, it
@@ -340,16 +378,11 @@ impl Worker {
         );
 
         info!(
-            "Worker {} listening to client transactions on {}",
+            "Worker {} listening to Anvil/Client transactions on {}",
             self.id, address
         );
 
-        vec![
-            batch_maker_handle,
-            quorum_waiter_handle,
-            processor_handle,
-            tx_receiver_handle,
-        ]
+        vec![batch_maker_handle, quorum_waiter_handle, processor_handle]
     }
 
     /// Spawn all tasks responsible to handle messages from other workers.
@@ -374,6 +407,30 @@ impl Worker {
     }
 }
 
+/// Defines how the network receiver handles incoming workers messages.
+#[derive(Clone)]
+struct AnvilReceiverHandler {
+    tx_batch_maker: Sender<Transaction>,
+}
+
+#[async_trait]
+impl AnvilToWorker for AnvilReceiverHandler {
+    async fn submit_transaction(
+        &self,
+        request: anemo::Request<types::AnvilTransactionRequest>,
+    ) -> Result<anemo::Response<()>, anemo::rpc::Status> {
+        let tx: Transaction = request.into_body().tx;
+        self.tx_batch_maker
+            .send(tx.to_vec())
+            .await
+            .map_err(|_| DagError::ShuttingDown)
+            .map_err(|e| anemo::rpc::Status::from_error(Box::new(e)))?;
+        info!("Received Tx from Client/Anvil");
+        Ok(anemo::Response::new(()))
+    }
+}
+
+/*
 /// Defines how the network receiver handles incoming transactions.
 #[derive(Clone)]
 struct TxReceiverHandler {
@@ -448,3 +505,4 @@ impl Transactions for TxReceiverHandler {
         Ok(Response::new(Empty {}))
     }
 }
+*/

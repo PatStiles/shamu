@@ -720,7 +720,7 @@ impl AuthorityDetails {
 
         let config = mysten_network::config::Config::new();
         let channel = config
-            .connect_lazy(&internal.primary.parameters.consensus_api_grpc.socket_addr)
+            .connect_lazy(&internal.primary.parameters.consensus_api_grpc.socket_multi_addr)
             .unwrap();
 
         ProposerClient::new(channel)
@@ -761,7 +761,7 @@ impl AuthorityDetails {
 
         let config = mysten_network::config::Config::new();
         let channel = config
-            .connect_lazy(&internal.primary.parameters.consensus_api_grpc.socket_addr)
+            .connect_lazy(&internal.primary.parameters.consensus_api_grpc.socket_multi_addr)
             .unwrap();
 
         ConfigurationClient::new(channel)

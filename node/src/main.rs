@@ -285,19 +285,9 @@ async fn run(
     );
     let _metrics_server_handle = start_prometheus_server(prom_address, &registry);
 
-    // Analyze the consensus' output.
-    analyze(rx_transaction_confirmation).await;
-
     // Await on the completion handles of all the nodes we have launched
     join_all(node_handles).await;
 
     // If this expression is reached, the program ends and all other tasks terminate.
     Ok(())
-}
-
-/// Receives an ordered list of certificates and apply any application-specific logic.
-async fn analyze(mut rx_output: Receiver<SerializedTransaction>) {
-    while let Some(_message) = rx_output.recv().await {
-        // NOTE: Notify the user that its transaction has been processed.
-    }
 }

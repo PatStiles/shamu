@@ -16,10 +16,11 @@ use rand::{rngs::SmallRng, SeedableRng as _};
 use std::collections::HashMap;
 use tokio::{runtime::Handle, task::JoinHandle};
 use types::{
-    Batch, BatchDigest, PrimaryMessage, PrimaryToPrimaryClient, PrimaryToWorkerClient,
-    PrimaryWorkerMessage, RequestBatchRequest, WorkerBatchRequest, WorkerBatchResponse,
-    WorkerMessage, WorkerPrimaryMessage, WorkerSynchronizeMessage, WorkerToPrimaryClient,
-    WorkerToWorkerClient,
+    AnvilToWorkerClient, AnvilTransactionRequest, AnvilWorkerMessage, Batch, BatchDigest,
+    PrimaryMessage, PrimaryToPrimaryClient, PrimaryToWorkerClient, PrimaryWorkerMessage,
+    RequestBatchRequest, TransactionProto, TransactionsClient, WorkerBatchRequest,
+    WorkerBatchResponse, WorkerMessage, WorkerPrimaryMessage, WorkerSynchronizeMessage,
+    WorkerToPrimaryClient, WorkerToWorkerClient,
 };
 
 fn default_executor() -> BoundedExecutor {
@@ -381,6 +382,46 @@ impl ReliableNetwork<WorkerBatchRequest> for P2pNetwork {
             async move {
                 WorkerToWorkerClient::new(peer)
                     .request_batches(message)
+                    .await
+            }
+        };
+
+        self.send(peer, f).await
+    }
+}
+
+// Anvil -> Worker
+impl UnreliableNetwork<AnvilTransactionRequest> for P2pNetwork {
+    type Response = ();
+    fn unreliable_send(
+        &mut self,
+        peer: NetworkPublicKey,
+        message: &AnvilTransactionRequest,
+    ) -> Result<JoinHandle<Result<anemo::Response<()>>>> {
+        let message = message.to_owned();
+        let f = move |peer| async move {
+            AnvilToWorkerClient::new(peer)
+                .submit_transaction(message)
+                .await
+        };
+        self.unreliable_send(peer, f)
+    }
+}
+
+#[async_trait]
+impl ReliableNetwork<AnvilTransactionRequest> for P2pNetwork {
+    type Response = ();
+    async fn send(
+        &mut self,
+        peer: NetworkPublicKey,
+        message: &AnvilTransactionRequest,
+    ) -> CancelOnDropHandler<Result<anemo::Response<()>>> {
+        let message = message.to_owned();
+        let f = move |peer| {
+            let message = message.clone();
+            async move {
+                AnvilToWorkerClient::new(peer)
+                    .submit_transaction(message)
                     .await
             }
         };

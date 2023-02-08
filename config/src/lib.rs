@@ -1,4 +1,3 @@
-// Copyright (c) 2021, Facebook, Inc. and its affiliates
 // Copyright (c) 2022, Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 #![warn(
@@ -15,6 +14,7 @@ use fastcrypto::traits::EncodeDecodeBase64;
 use multiaddr::Multiaddr;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::net::SocketAddr;
 use std::{
     collections::{BTreeMap, HashSet},
     fs::{self, OpenOptions},
@@ -157,7 +157,9 @@ impl Default for PrometheusMetricsParameters {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ConsensusAPIGrpcParameters {
     /// Socket address the server should be listening to.
-    pub socket_addr: Multiaddr,
+    pub socket_multi_addr: Multiaddr,
+    /// Socket address the server should be listening to.
+    pub socket_addr: SocketAddr,
     /// The timeout configuration when requesting batches from workers.
     #[serde(with = "duration_format")]
     pub get_collections_timeout: Duration,
@@ -169,8 +171,12 @@ pub struct ConsensusAPIGrpcParameters {
 impl Default for ConsensusAPIGrpcParameters {
     fn default() -> Self {
         let host = "127.0.0.1";
+        let port = get_available_port(host);
         Self {
-            socket_addr: format!("/ip4/{}/tcp/{}/http", host, get_available_port(host))
+            socket_multi_addr: format!("/ip4/{}/tcp/{}/http", host, port)
+                .parse()
+                .unwrap(),
+            socket_addr: format!("{}:{}", host, port)
                 .parse()
                 .unwrap(),
             get_collections_timeout: Duration::from_millis(5_000),
@@ -487,8 +493,10 @@ impl WorkerCache {
 pub struct Authority {
     /// The voting power of this authority.
     pub stake: Stake,
-    /// The network address of the primary.
+    /// the network address of the primary.
     pub primary_address: Multiaddr,
+    /// the network address of anvil.
+    pub anvil_address: Multiaddr,
     /// Network key of the primary.
     pub network_key: NetworkPublicKey,
 }
@@ -582,6 +590,14 @@ impl Committee {
         self.authorities
             .get(&to.clone())
             .map(|x| x.primary_address.clone())
+            .ok_or_else(|| ConfigError::NotInCommittee((*to).encode_base64()))
+    }
+
+    /// Returns the anvil address of the target primary.
+    pub fn anvil(&self, to: &PublicKey) -> Result<Multiaddr, ConfigError> {
+        self.authorities
+            .get(&to.clone())
+            .map(|x| x.anvil_address.clone())
             .ok_or_else(|| ConfigError::NotInCommittee((*to).encode_base64()))
     }
 

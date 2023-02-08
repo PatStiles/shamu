@@ -17,6 +17,7 @@ use multiaddr::Multiaddr;
 use rand::{rngs::OsRng, Rng};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
+    net::SocketAddr,
     num::NonZeroUsize,
     ops::RangeInclusive,
     sync::Arc,
@@ -819,8 +820,10 @@ pub struct AuthorityFixture {
     keypair: KeyPair,
     network_keypair: NetworkKeyPair,
     stake: Stake,
-    address: Multiaddr,
+    primary_address: Multiaddr,
+    anviladdress: Multiaddr,
     workers: BTreeMap<WorkerId, WorkerFixture>,
+    anvil_address: SocketAddr,
 }
 
 impl AuthorityFixture {
@@ -833,7 +836,7 @@ impl AuthorityFixture {
     }
 
     pub fn address(&self) -> &Multiaddr {
-        &self.address
+        &self.primary_address
     }
 
     pub fn worker(&self, id: WorkerId) -> &WorkerFixture {
@@ -858,7 +861,8 @@ impl AuthorityFixture {
     pub fn authority(&self) -> Authority {
         Authority {
             stake: self.stake,
-            primary_address: self.address.clone(),
+            primary_address: self.primary_address.clone(),
+            anvil_address: self.anviladdress.clone(),
             network_key: self.network_keypair.public().clone(),
         }
     }
@@ -904,9 +908,13 @@ impl AuthorityFixture {
         let keypair = KeyPair::generate(&mut rng);
         let network_keypair = NetworkKeyPair::generate(&mut rng);
         let host = "127.0.0.1";
-        let address: Multiaddr = format!("/ip4/{}/tcp/{}/http", host, get_port(host))
+        let primary_address: Multiaddr = format!("/ip4/{}/tcp/{}/http", host, get_port(host))
             .parse()
             .unwrap();
+        let anviladdress: Multiaddr = format!("/ip4/{}/tcp/{}/http", host, get_port(host))
+            .parse()
+            .unwrap();
+        let anvil_address: SocketAddr = format!("{}:{}", host, get_port(host)).parse().unwrap();
 
         let workers = (0..number_of_workers.get())
             .map(|idx| {
@@ -920,8 +928,10 @@ impl AuthorityFixture {
             keypair,
             network_keypair,
             stake: 1,
-            address,
+            primary_address,
+            anviladdress,
             workers,
+            anvil_address,
         }
     }
 }

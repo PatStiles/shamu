@@ -8,14 +8,17 @@ use consensus::{
     Consensus, ConsensusOutput,
 };
 
-use crypto::{KeyPair, NetworkKeyPair, PublicKey};
+use crypto::{traits::VerifyingKey, KeyPair, NetworkKeyPair, PublicKey};
 use executor::{get_restored_consensus_output, ExecutionState, Executor, SubscriberResult};
-use fastcrypto::traits::{KeyPair as _, VerifyingKey};
+use fastcrypto::{
+    traits::{EncodeDecodeBase64, KeyPair as _},
+    SignatureService,
+};
 use itertools::Itertools;
 use network::P2pNetwork;
 use primary::{NetworkModel, PayloadToken, Primary, PrimaryChannelMetrics};
 use prometheus::{IntGauge, Registry};
-use std::sync::Arc;
+use std::{net::Ipv4Addr, sync::Arc};
 use storage::{CertificateStore, CertificateToken};
 use store::{
     reopen,
@@ -27,13 +30,19 @@ use tokio::{sync::watch, task::JoinHandle};
 use tracing::{debug, info};
 use types::{
     metered_channel, Batch, BatchDigest, Certificate, CertificateDigest, ConsensusStore, Header,
-    HeaderDigest, ReconfigureNotification, Round, RoundVoteDigestPair, SequenceNumber,
+    HeaderDigest, ReconfigureNotification, Round, RoundVoteDigestPair, SequenceNumber, Transaction,
 };
 use worker::{metrics::initialise_metrics, Worker};
 
 pub mod execution_state;
 pub mod metrics;
 pub mod restarter;
+
+use anvil::{server::error::NodeError, spawn};
+use futures::channel::mpsc::Sender as Snd;
+use multiaddr::{Multiaddr, Protocol::Ip4};
+use parking_lot::Mutex;
+use thiserror::Error;
 
 /// All the data stores of the node.
 pub struct NodeStorage {
@@ -155,7 +164,7 @@ impl Node {
         State: ExecutionState + Send + Sync + 'static,
     {
         let initial_committee = ReconfigureNotification::NewEpoch((**committee.load()).clone());
-        let (tx_reconfigure, _rx_reconfigure) = watch::channel(initial_committee);
+        let (tx_reconfigure, rx_reconfigure) = watch::channel(initial_committee);
 
         // These gauge is porcelain: do not modify it without also modifying `primary::metrics::PrimaryChannelMetrics::replace_registered_new_certificates_metric`
         // This hack avoids a cyclic dependency in the initialization of consensus and primary
@@ -183,6 +192,35 @@ impl Node {
         let (tx_get_block_commands, rx_get_block_commands) =
             metered_channel::channel(Self::CHANNEL_CAPACITY, &tx_get_block_commands_counter);
 
+        // create metrics channel for consensus
+        let channel_metrics = ChannelMetrics::new(registry);
+
+        // Channel for Anvil to Receive Consensus Output
+        let (tx_sequence, rx_sequence) =
+            metered_channel::channel(Self::CHANNEL_CAPACITY, &channel_metrics.tx_sequence);
+
+        let vec: Vec<Snd<Transaction>> = Vec::new();
+        let tx_listeners = Mutex::new(vec);
+
+        // Check for any certs that have been sent by consensus but were not processed by the executor.
+        let restored_consensus_output = get_restored_consensus_output(
+            store.consensus_store.clone(),
+            store.certificate_store.clone(),
+            &execution_state,
+        )
+        .await?
+        .into_iter()
+        .sorted_by(|a, b| a.consensus_index.cmp(&b.consensus_index))
+        .collect::<Vec<ConsensusOutput>>();
+
+        let len_restored = restored_consensus_output.len() as u64;
+        if len_restored > 0 {
+            info!(
+                "Consensus output on its way to the executor was restored for {} certificates",
+                len_restored
+            );
+        }
+
         // Compute the public key of this authority.
         let name = keypair.public().clone();
         let mut handles = Vec::new();
@@ -207,7 +245,11 @@ impl Node {
                 &tx_reconfigure,
                 rx_new_certificates,
                 tx_consensus.clone(),
+                tx_sequence.clone(),
                 registry,
+                len_restored,
+                rx_sequence,
+                restored_consensus_output.clone(),
             )
             .await?;
             handles.extend(consensus_handles);
@@ -233,7 +275,7 @@ impl Node {
         let primary_handles = Primary::spawn(
             name.clone(),
             keypair,
-            network_keypair,
+            network_keypair.copy(),
             committee.clone(),
             worker_cache.clone(),
             parameters.clone(),
@@ -249,10 +291,26 @@ impl Node {
             network_model,
             tx_reconfigure,
             tx_consensus,
-            registry,
+            &registry.clone(),
             Some(rx_executor_network),
         );
         handles.extend(primary_handles);
+
+        // Think this willl fuck shit up
+        Self::spawn_anvil(
+            //rx_sequence,
+            restored_consensus_output,
+            store,
+            tx_listeners,
+            rx_reconfigure,
+            committee.clone(),
+            parameters.clone(),
+            worker_cache.clone(),
+            network_keypair,
+            name,
+        )
+        .await
+        .unwrap();
 
         // Let's spin off a separate thread that waits a while then dumps the profile,
         // otherwise this function exits immediately and the profile is dumped way too soon.
@@ -274,12 +332,54 @@ impl Node {
         Ok(handles)
     }
 
+    //TODO: This has got to be better
+    /// Spawn the anvil instance taking the place of the server
+    async fn spawn_anvil(
+        //rx_sequence: metered_channel::Receiver<ConsensusOutput>,
+        restored_consensus_output: Vec<ConsensusOutput>,
+        mempool_store: &NodeStorage,
+        tx_listeners: Mutex<Vec<Snd<Transaction>>>,
+        rx_reconfigure: watch::Receiver<ReconfigureNotification>,
+        committee: SharedCommittee,
+        parameters: Parameters,
+        worker_cache: SharedWorkerCache,
+        network_signer: NetworkKeyPair,
+        name: PublicKey,
+    ) -> Result<(), NodeError> {
+        // Spawn the network receiver listening to messages from the primary.
+        /*
+        let mut address = (**committee.load())
+            .anvil(&name)
+            .expect("Our public key or anvil is not in the committee");
+        */
+        //TODO: REPLACE THIS WITH mysten_network::to_socket_addr
+        let mut address = parameters.consensus_api_grpc.socket_addr;
+
+        let config = anvil::NodeConfig {
+            host: Some(address.ip()),
+            port: address.port(),
+            enable_tracing: false,
+            ..Default::default()
+        };
+
+        let (_, handle) = spawn(
+            config,
+            tx_listeners,
+            rx_reconfigure,
+            committee,
+            worker_cache,
+            network_signer,
+            name,
+        )
+        .await;
+        handle.await.unwrap()
+    }
+
     /// Spawn the consensus core and the client executing transactions.
     async fn spawn_consensus<State>(
         name: PublicKey,
         network: oneshot::Receiver<P2pNetwork>,
         worker_cache: SharedWorkerCache,
-
         committee: SharedCommittee,
         store: &NodeStorage,
         parameters: Parameters,
@@ -287,36 +387,19 @@ impl Node {
         tx_reconfigure: &watch::Sender<ReconfigureNotification>,
         rx_new_certificates: metered_channel::Receiver<Certificate>,
         tx_feedback: metered_channel::Sender<Certificate>,
+        tx_sequence: metered_channel::Sender<ConsensusOutput>,
         registry: &Registry,
+        len_restored: u64,
+        rx_sequence: metered_channel::Receiver<ConsensusOutput>,
+        restored_consensus_output: Vec<ConsensusOutput>,
     ) -> SubscriberResult<Vec<JoinHandle<()>>>
     where
         PublicKey: VerifyingKey,
         State: ExecutionState + Send + Sync + 'static,
     {
+        // Consensus metrics
         let consensus_metrics = Arc::new(ConsensusMetrics::new(registry));
-        let channel_metrics = ChannelMetrics::new(registry);
 
-        let (tx_sequence, rx_sequence) =
-            metered_channel::channel(Self::CHANNEL_CAPACITY, &channel_metrics.tx_sequence);
-
-        // Check for any certs that have been sent by consensus but were not processed by the executor.
-        let restored_consensus_output = get_restored_consensus_output(
-            store.consensus_store.clone(),
-            store.certificate_store.clone(),
-            &execution_state,
-        )
-        .await?
-        .into_iter()
-        .sorted_by(|a, b| a.consensus_index.cmp(&b.consensus_index))
-        .collect::<Vec<ConsensusOutput>>();
-
-        let len_restored = restored_consensus_output.len() as u64;
-        if len_restored > 0 {
-            info!(
-                "Consensus output on its way to the executor was restored for {} certificates",
-                len_restored
-            );
-        }
         consensus_metrics
             .recovered_consensus_output
             .inc_by(len_restored);
@@ -396,4 +479,10 @@ impl Node {
         }
         handles
     }
+}
+
+#[derive(Debug, Error, Eq, PartialEq)]
+pub enum AnvilError {
+    #[error("Failed to Spawn Anvil Process")]
+    SpawnError,
 }

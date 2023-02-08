@@ -132,6 +132,20 @@ fn build_anemo_services(out_dir: &Path) {
         )
         .build();
 
+    let anvil_to_worker = anemo_build::manual::Service::builder()
+        .name("AnvilToWorker")
+        .package("narwhal")
+        .method(
+            anemo_build::manual::Method::builder()
+                .name("submit_transaction")
+                .route_name("SubmitTransaction")
+                .request_type("crate::AnvilTransactionRequest")
+                .response_type("()")
+                .codec_path("anemo::rpc::codec::BincodeCodec")
+                .build(),
+        )
+        .build();
+
     anemo_build::manual::Builder::new()
         .out_dir(out_dir)
         .compile(&[
@@ -139,6 +153,7 @@ fn build_anemo_services(out_dir: &Path) {
             primary_to_worker,
             worker_to_primary,
             worker_to_worker,
+            anvil_to_worker,
         ]);
 }
 
