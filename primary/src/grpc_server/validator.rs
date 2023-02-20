@@ -29,6 +29,7 @@ pub struct NarwhalValidator<SynchronizerHandler: Handler + Send + Sync + 'static
 }
 
 impl<SynchronizerHandler: Handler + Send + Sync + 'static> NarwhalValidator<SynchronizerHandler> {
+    #[allow(dead_code)]
     pub fn new(
         tx_get_block_commands: Sender<BlockCommand>,
         tx_block_removal_commands: Sender<BlockRemoverCommand>,

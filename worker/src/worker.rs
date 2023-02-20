@@ -15,23 +15,21 @@ use anemo_tower::{callback::CallbackLayer, trace::TraceLayer};
 use async_trait::async_trait;
 use config::{Parameters, SharedCommittee, SharedWorkerCache, WorkerId};
 use crypto::{traits::KeyPair as _, NetworkKeyPair, PublicKey};
-use futures::StreamExt;
-use multiaddr::{Multiaddr, Protocol};
+use multiaddr::Protocol;
 use network::metrics::MetricsMakeCallbackHandler;
 use network::P2pNetwork;
 use primary::PrimaryWorkerMessage;
 use std::{net::Ipv4Addr, sync::Arc};
 use store::Store;
 use tokio::{sync::watch, task::JoinHandle};
-use tonic::{Request, Response, Status};
 use tower::ServiceBuilder;
 use tracing::info;
 use types::{
     error::DagError,
     metered_channel::{channel, Receiver, Sender},
-    AnvilToWorker, AnvilToWorkerClient, AnvilToWorkerServer, Batch, BatchDigest, Empty,
-    PrimaryToWorkerServer, ReconfigureNotification, Transaction, TransactionProto, Transactions,
-    TransactionsServer, WorkerPrimaryMessage, WorkerToWorkerServer,
+    AnvilToWorker, AnvilToWorkerServer, Batch, BatchDigest,
+    PrimaryToWorkerServer, ReconfigureNotification, Transaction,
+    WorkerPrimaryMessage, WorkerToWorkerServer,
 };
 
 #[cfg(test)]
@@ -41,7 +39,7 @@ pub mod worker_tests;
 /// The default channel capacity for each channel of the worker.
 pub const CHANNEL_CAPACITY: usize = 1_000;
 
-use crate::metrics::{Metrics, WorkerEndpointMetrics, WorkerMetrics};
+use crate::metrics::{Metrics, WorkerMetrics};
 pub use types::WorkerMessage;
 
 pub struct Worker {
@@ -84,7 +82,6 @@ impl Worker {
         };
 
         let node_metrics = Arc::new(metrics.worker_metrics.unwrap());
-        let endpoint_metrics = metrics.endpoint_metrics.unwrap();
         let channel_metrics: Arc<WorkerChannelMetrics> = Arc::new(metrics.channel_metrics.unwrap());
         let inbound_network_metrics = Arc::new(metrics.inbound_network_metrics.unwrap());
         let outbound_network_metrics = Arc::new(metrics.outbound_network_metrics.unwrap());
@@ -299,17 +296,10 @@ impl Worker {
             })
             .unwrap();
         let addr = network::multiaddr_to_address(&address).unwrap();
-        /*
-        let tx_receiver_handle = TxReceiverHandler { tx_batch_maker }.spawn(
-            address.clone(),
-            tx_reconfigure.subscribe(),
-            endpoint_metrics,
-        );
-        */
+
         let tx_service_handle = AnvilToWorkerServer::new(AnvilReceiverHandler { tx_batch_maker });
         // Set up anemo Network.
         let routes = anemo::Router::new().add_rpc_service(tx_service_handle);
-        //TODO: Add Tx Services
 
         let service = ServiceBuilder::new()
             .layer(TraceLayer::new())
@@ -429,80 +419,3 @@ impl AnvilToWorker for AnvilReceiverHandler {
         Ok(anemo::Response::new(()))
     }
 }
-
-/*
-/// Defines how the network receiver handles incoming transactions.
-#[derive(Clone)]
-struct TxReceiverHandler {
-    tx_batch_maker: Sender<Transaction>,
-}
-
-impl TxReceiverHandler {
-    async fn wait_for_shutdown(mut rx_reconfigure: watch::Receiver<ReconfigureNotification>) {
-        loop {
-            let result = rx_reconfigure.changed().await;
-            result.expect("Committee channel dropped");
-            let message = rx_reconfigure.borrow().clone();
-            if let ReconfigureNotification::Shutdown = message {
-                break;
-            }
-        }
-    }
-
-    #[must_use]
-    fn spawn(
-        self,
-        address: Multiaddr,
-        rx_reconfigure: watch::Receiver<ReconfigureNotification>,
-        endpoint_metrics: WorkerEndpointMetrics,
-    ) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            tokio::select! {
-                _result =  mysten_network::config::Config::new()
-                    .server_builder_with_metrics(endpoint_metrics)
-                    .add_service(TransactionsServer::new(self))
-                    .bind(&address)
-                    .await
-                    .unwrap()
-                    .serve() => (),
-
-                () = Self::wait_for_shutdown(rx_reconfigure) => ()
-            }
-        })
-    }
-}
-
-#[async_trait]
-impl Transactions for TxReceiverHandler {
-    async fn submit_transaction(
-        &self,
-        request: Request<TransactionProto>,
-    ) -> Result<Response<Empty>, Status> {
-        let message = request.into_inner().transaction;
-        // Send the transaction to the batch maker.
-        self.tx_batch_maker
-            .send(message.to_vec())
-            .await
-            .map_err(|_| DagError::ShuttingDown)
-            .map_err(|e| Status::not_found(e.to_string()))?;
-
-        Ok(Response::new(Empty {}))
-    }
-
-    async fn submit_transaction_stream(
-        &self,
-        request: tonic::Request<tonic::Streaming<types::TransactionProto>>,
-    ) -> Result<tonic::Response<types::Empty>, tonic::Status> {
-        let mut transactions = request.into_inner();
-
-        while let Some(Ok(txn)) = transactions.next().await {
-            // Send the transaction to the batch maker.
-            self.tx_batch_maker
-                .send(txn.transaction.to_vec())
-                .await
-                .expect("Failed to send transaction");
-        }
-        Ok(Response::new(Empty {}))
-    }
-}
-*/

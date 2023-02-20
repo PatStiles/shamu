@@ -20,6 +20,7 @@ pub struct NarwhalProposer {
 }
 
 impl NarwhalProposer {
+    #[allow(dead_code)]
     pub fn new(dag: Option<Arc<Dag>>, committee: SharedCommittee) -> Self {
         Self { dag, committee }
     }

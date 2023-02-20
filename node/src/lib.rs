@@ -10,15 +10,12 @@ use consensus::{
 
 use crypto::{traits::VerifyingKey, KeyPair, NetworkKeyPair, PublicKey};
 use executor::{get_restored_consensus_output, ExecutionState, Executor, SubscriberResult};
-use fastcrypto::{
-    traits::{EncodeDecodeBase64, KeyPair as _},
-    SignatureService,
-};
+use fastcrypto::traits::KeyPair as _;
 use itertools::Itertools;
 use network::P2pNetwork;
 use primary::{NetworkModel, PayloadToken, Primary, PrimaryChannelMetrics};
 use prometheus::{IntGauge, Registry};
-use std::{net::Ipv4Addr, sync::Arc};
+use std::sync::Arc;
 use storage::{CertificateStore, CertificateToken};
 use store::{
     reopen,
@@ -40,7 +37,6 @@ pub mod restarter;
 
 use anvil::{server::error::NodeError, spawn};
 use futures::channel::mpsc::Sender as Snd;
-use multiaddr::{Multiaddr, Protocol::Ip4};
 use parking_lot::Mutex;
 use thiserror::Error;
 
@@ -298,9 +294,6 @@ impl Node {
 
         // Think this willl fuck shit up
         Self::spawn_anvil(
-            //rx_sequence,
-            restored_consensus_output,
-            store,
             tx_listeners,
             rx_reconfigure,
             committee.clone(),
@@ -332,12 +325,8 @@ impl Node {
         Ok(handles)
     }
 
-    //TODO: This has got to be better
     /// Spawn the anvil instance taking the place of the server
     async fn spawn_anvil(
-        //rx_sequence: metered_channel::Receiver<ConsensusOutput>,
-        restored_consensus_output: Vec<ConsensusOutput>,
-        mempool_store: &NodeStorage,
         tx_listeners: Mutex<Vec<Snd<Transaction>>>,
         rx_reconfigure: watch::Receiver<ReconfigureNotification>,
         committee: SharedCommittee,
@@ -347,13 +336,8 @@ impl Node {
         name: PublicKey,
     ) -> Result<(), NodeError> {
         // Spawn the network receiver listening to messages from the primary.
-        /*
-        let mut address = (**committee.load())
-            .anvil(&name)
-            .expect("Our public key or anvil is not in the committee");
-        */
         //TODO: REPLACE THIS WITH mysten_network::to_socket_addr
-        let mut address = parameters.consensus_api_grpc.socket_addr;
+        let address = parameters.consensus_api_grpc.socket_addr;
 
         let config = anvil::NodeConfig {
             host: Some(address.ip()),

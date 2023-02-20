@@ -13,6 +13,7 @@ use std::time::Duration;
 use tonic::Code;
 
 #[derive(Clone)]
+#[warn(dead_code)]
 pub(crate) struct Metrics {
     pub(crate) endpoint_metrics: Option<EndpointMetrics>,
     pub(crate) inbound_network_metrics: Option<NetworkMetrics>,

@@ -12,7 +12,6 @@ use arc_swap::ArcSwap;
 use clap::{crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
 use config::{Committee, Import, Parameters, WorkerCache, WorkerId};
 use crypto::{KeyPair, NetworkKeyPair};
-use executor::SerializedTransaction;
 use eyre::Context;
 use fastcrypto::{generate_production_keypair, traits::KeyPair as _};
 use futures::future::join_all;
@@ -25,7 +24,7 @@ use node::{
 use prometheus::Registry;
 use std::sync::Arc;
 use telemetry_subscribers::TelemetryGuards;
-use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::mpsc::channel;
 use tracing::info;
 #[cfg(feature = "benchmark")]
 use tracing::subscriber::set_global_default;
@@ -233,7 +232,7 @@ async fn run(
     let store = NodeStorage::reopen(store_path);
 
     // The channel returning the result for each transaction's execution.
-    let (tx_transaction_confirmation, rx_transaction_confirmation) =
+    let (tx_transaction_confirmation, _rx_transaction_confirmation) =
         channel(Node::CHANNEL_CAPACITY);
 
     // Check whether to run a primary, a worker, or an entire authority.

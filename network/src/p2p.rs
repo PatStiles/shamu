@@ -16,9 +16,9 @@ use rand::{rngs::SmallRng, SeedableRng as _};
 use std::collections::HashMap;
 use tokio::{runtime::Handle, task::JoinHandle};
 use types::{
-    AnvilToWorkerClient, AnvilTransactionRequest, AnvilWorkerMessage, Batch, BatchDigest,
+    AnvilToWorkerClient, AnvilTransactionRequest, Batch, BatchDigest,
     PrimaryMessage, PrimaryToPrimaryClient, PrimaryToWorkerClient, PrimaryWorkerMessage,
-    RequestBatchRequest, TransactionProto, TransactionsClient, WorkerBatchRequest,
+    RequestBatchRequest, WorkerBatchRequest,
     WorkerBatchResponse, WorkerMessage, WorkerPrimaryMessage, WorkerSynchronizeMessage,
     WorkerToPrimaryClient, WorkerToWorkerClient,
 };

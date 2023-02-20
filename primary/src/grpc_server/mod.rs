@@ -22,6 +22,7 @@ pub mod metrics;
 mod proposer;
 mod validator;
 
+#[warn(dead_code)]
 pub struct ConsensusAPIGrpc<SynchronizerHandler: Handler + Send + Sync + 'static> {
     name: PublicKey,
     // Multiaddr of gRPC server
@@ -38,6 +39,7 @@ pub struct ConsensusAPIGrpc<SynchronizerHandler: Handler + Send + Sync + 'static
 
 impl<SynchronizerHandler: Handler + Send + Sync + 'static> ConsensusAPIGrpc<SynchronizerHandler> {
     #[must_use]
+    #[allow(dead_code)]
     pub fn spawn(
         name: PublicKey,
         socket_address: Multiaddr,
@@ -50,6 +52,7 @@ impl<SynchronizerHandler: Handler + Send + Sync + 'static> ConsensusAPIGrpc<Sync
         committee: SharedCommittee,
         endpoints_metrics: EndpointMetrics,
     ) -> JoinHandle<()> {
+
         tokio::spawn(async move {
             let _ = Self {
                 name,
@@ -69,6 +72,7 @@ impl<SynchronizerHandler: Handler + Send + Sync + 'static> ConsensusAPIGrpc<Sync
         })
     }
 
+    #[allow(dead_code)]
     async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let narwhal_validator = NarwhalValidator::new(
             self.tx_get_block_commands.to_owned(),

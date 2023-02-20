@@ -19,6 +19,7 @@ pub struct NarwhalConfiguration {
 }
 
 impl NarwhalConfiguration {
+    #[allow(dead_code)]
     pub fn new(primary_address: Multiaddr, committee: SharedCommittee) -> Self {
         Self {
             primary_address,

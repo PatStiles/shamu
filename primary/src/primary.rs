@@ -11,7 +11,6 @@ use crate::{
     block_waiter::{BatchMessageError, BatchResult, BlockWaiter},
     certificate_waiter::CertificateWaiter,
     core::Core,
-    grpc_server::ConsensusAPIGrpc,
     header_waiter::HeaderWaiter,
     helper::Helper,
     metrics::{initialise_metrics, PrimaryMetrics},
@@ -138,7 +137,7 @@ impl Primary {
         );
         let (tx_batches, rx_batches) =
             channel(CHANNEL_CAPACITY, &primary_channel_metrics.tx_batches);
-        let (tx_block_removal_commands, rx_block_removal_commands) = channel(
+        let (_tx_block_removal_commands, rx_block_removal_commands) = channel(
             CHANNEL_CAPACITY,
             &primary_channel_metrics.tx_block_removal_commands,
         );
@@ -333,9 +332,6 @@ impl Primary {
             block_waiter_primary_network,
         );
 
-        // Indicator variable for the gRPC server
-        let internal_consensus = dag.is_none();
-
         // Orchestrates the removal of blocks across the primary and worker nodes.
         let block_remover_primary_network = P2pNetwork::new(network.clone());
         let block_remover_handle = BlockRemover::spawn(
@@ -444,29 +440,6 @@ impl Primary {
             P2pNetwork::new(network),
         );
 
-        let consensus_api_handle = if !internal_consensus {
-            info!("gRPC for External Consensus Enabled");
-            // Spawn a grpc server to accept requests from external consensus layer.
-            /*
-            Some(ConsensusAPIGrpc::spawn(
-                name.clone(),
-                parameters.consensus_api_grpc.socket_addr,
-                tx_get_block_commands,
-                tx_block_removal_commands,
-                parameters.consensus_api_grpc.get_collections_timeout,
-                parameters.consensus_api_grpc.remove_collections_timeout,
-                block_synchronizer_handler,
-                dag,
-                committee.clone(),
-                endpoint_metrics,
-            ))
-            */
-            Some(())
-        } else {
-            info!("gRPC for External Consensus Disabled");
-            None
-        };
-
         // NOTE: This log entry is used to compute performance.
         info!(
             "Primary {} successfully booted on {}",
@@ -489,12 +462,6 @@ impl Primary {
             helper_handle,
             state_handler_handle,
         ];
-
-        /*
-        if let Some(h) = consensus_api_handle {
-            handles.push(h);
-        }
-        */
 
         handles
     }
